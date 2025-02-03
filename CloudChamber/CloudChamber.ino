@@ -6,6 +6,7 @@
  ************************************************************/
 
 #include <PID_v1.h>
+#include <math.h> 
 
 // Peltier control pins must be PWM outputs
 #define PIN_PELTIER_1 3
@@ -59,6 +60,20 @@ PID Peltier_3_PID(&Peltier_3_Input, &Peltier_3_Output, &Peltier_3_Setpoint, Pelt
 PID Peltier_4_PID(&Peltier_4_Input, &Peltier_4_Output, &Peltier_4_Setpoint, Peltier_4_Kp, Peltier_4_Ki, Peltier_4_Kd, DIRECT);
 
 
+//Serial input setup
+const byte Number_Chars = 32;
+char Received_Chars[Number_Chars];
+char Command_1[32] = {0};
+char Command_2[32] = {0};
+double Command_3 = 0.0;
+boolean New_Data = false;
+
+boolean Debug_Info = false;
+int Debug_Rate = 360;
+int Debug_Rate_Counter = 0;
+
+
+
 void setup() {
 
   Serial.begin(9600);
@@ -91,17 +106,32 @@ void setup() {
 }
 
 void loop() {
- 
+  
+  if (Debug_Rate>0){
+
+    Debug_Rate_Counter++;
+    if (Debug_Rate_Counter >= Debug_Rate){
+      Debug_Info = true;
+      Debug_Rate_Counter = 0;
+    }
+  }
+
+  RecvWithEndMarker();
+  ParseSerialInput();
+
   LEDControl();
 
   VaporController(PIN_VAPOR_1_TEMP, PIN_VAPOR_1, Vapor_1_Setpoint, 1);
   VaporController(PIN_VAPOR_2_TEMP, PIN_VAPOR_2, Vapor_1_Setpoint, 2);
   VaporController(PIN_VAPOR_3_TEMP, PIN_VAPOR_3, Vapor_1_Setpoint, 3);
   VaporController(PIN_VAPOR_4_TEMP, PIN_VAPOR_4, Vapor_1_Setpoint, 4);
-  Serial.println();
-
+  
   PeltierController();
-  Serial.println();
+  
+  if (Debug_Info == true){
+    Serial.println(String(availableMemory())+"B left in RAM");
+  }
+  Debug_Info = false;
   
 }
 
@@ -112,11 +142,11 @@ void LEDControl(){
   //Check if the input state changed
   if (LED_Input != LED_Input_History){
     if (LED_Input == 0){
-      Serial.println("LEDs were on, turning them off");
+      Serial.println("LEDs on->off");
       digitalWrite(PIN_LED_OUTPUT, LOW);
     }
     else{
-      Serial.println("LEDs were off, turning them on");
+      Serial.println("LEDs off->on");
       digitalWrite(PIN_LED_OUTPUT, HIGH);
     }
     Serial.println();
@@ -126,22 +156,29 @@ void LEDControl(){
 
 //simple on/off control of vapor resistors
 void VaporController(int PIN_Input, int PIN_Output, int PIN_Setpoint, int PIN_Number){
+  
   double Vapor_Temperature = MeasureTemperatureDS18B20(PIN_Input);
-
+  String Vapor_Response = "";
+  
   if (Vapor_Temperature >= PIN_Setpoint){
     digitalWrite(PIN_Output, LOW);
-    Serial.println("Vapor "+String(PIN_Number)+",   PV = "+String(Vapor_Temperature)+"C, SV = "+String(PIN_Setpoint)+"C, Output Disabled");
+    Vapor_Response += "V"+String(PIN_Number)+", PV = "+String(Vapor_Temperature)+"C, SV = "+String(PIN_Setpoint)+"C, Disabled";
   }
   else{
     digitalWrite(PIN_Output, HIGH);
-    Serial.println("Vapor "+String(PIN_Number)+",   PV = "+String(Vapor_Temperature)+"C, SV = "+String(PIN_Setpoint)+"C, Output Enabled");
+    Vapor_Response += "V"+String(PIN_Number)+", PV = "+String(Vapor_Temperature)+"C, SV = "+String(PIN_Setpoint)+"C, Enabled";
   }
 
+  if (Debug_Info == true && Vapor_Response != ""){
+    Serial.println(Vapor_Response);
+  }
 
 }
 
 //PWM control for Peltier modules
 void PeltierController(){
+
+  String Peltier_Response = "";
 
   //Measure actual temperatures
   Peltier_1_Input = MeasureTemperatureDS18B20(PIN_PELTIER_1_TEMP);
@@ -156,16 +193,25 @@ void PeltierController(){
   Peltier_4_PID.Compute();
 
   //Write PWM Values, inverted (255-output) since the peltier modules cool (become more negative) with higher input
-  analogWrite(PIN_PELTIER_1, 255-Peltier_1_Output);
-  analogWrite(PIN_PELTIER_2, 255-Peltier_2_Output);
-  analogWrite(PIN_PELTIER_3, 255-Peltier_3_Output);
-  analogWrite(PIN_PELTIER_4, 255-Peltier_4_Output);
+  double P_1_O = Peltier_1_Output;
+  double P_2_O = Peltier_2_Output;
+  double P_3_O = Peltier_3_Output;
+  double P_4_O = Peltier_4_Output;
+  
+  analogWrite(PIN_PELTIER_1, 255-P_1_O);
+  analogWrite(PIN_PELTIER_2, 255-P_1_O);
+  analogWrite(PIN_PELTIER_3, 255-P_1_O);
+  analogWrite(PIN_PELTIER_4, 255-P_1_O);
 
-  Serial.println("Peltier 1, PV = "+String(Peltier_1_Input, 2)+"C, SV = "+String(Peltier_1_Setpoint, 2)+"C, PWM Value = "+String(255-Peltier_1_Output, 2));
-  Serial.println("Peltier 2, PV = "+String(Peltier_2_Input, 2)+"C, SV = "+String(Peltier_2_Setpoint, 2)+"C, PWM Value = "+String(255-Peltier_2_Output, 2));
-  Serial.println("Peltier 3, PV = "+String(Peltier_3_Input, 2)+"C, SV = "+String(Peltier_3_Setpoint, 2)+"C, PWM Value = "+String(255-Peltier_3_Output, 2));
-  Serial.println("Peltier 4, PV = "+String(Peltier_4_Input, 2)+"C, SV = "+String(Peltier_4_Setpoint, 2)+"C, PWM Value = "+String(255-Peltier_4_Output, 2));
+  Peltier_Response +="P1, PV = "+String(Peltier_1_Input, 2)+"C, SV = "+String(Peltier_1_Setpoint, 2)+"C, PWM = "+String(255-P_1_O, 2)+" / "+String(100*(255-P_1_O)/255,2)+"%\n";
+  Peltier_Response +="P2, PV = "+String(Peltier_2_Input, 2)+"C, SV = "+String(Peltier_2_Setpoint, 2)+"C, PWM = "+String(255-P_2_O, 2)+" / "+String(100*(255-P_2_O)/255,2)+"%\n";
+  Peltier_Response +="P3, PV = "+String(Peltier_3_Input, 2)+"C, SV = "+String(Peltier_3_Setpoint, 2)+"C, PWM = "+String(255-P_3_O, 2)+" / "+String(100*(255-P_3_O)/255,2)+"%\n";
+  Peltier_Response +="P4, PV = "+String(Peltier_4_Input, 2)+"C, SV = "+String(Peltier_4_Setpoint, 2)+"C, PWM = "+String(255-P_4_O, 2)+" / "+String(100*(255-P_4_O)/255,2)+"%\n";
 
+  if (Debug_Info == true && Peltier_Response != ""){
+    Serial.println(Peltier_Response);
+  }
+ 
   }
 
 //Measure Temperature from a DS18B20 temperature sensor
@@ -175,4 +221,215 @@ double MeasureTemperatureDS18B20(int PIN_Input){
   //placeholder before having a real sensor
   Temp_Measurement = random(-50, 50);
   return Temp_Measurement;
+}
+
+
+//Serial Input function
+void RecvWithEndMarker() {
+    static byte ndx = 0;
+    char End_Marker = '\n';
+    char rc;
+    
+    while (Serial.available() > 0 && New_Data == false) {
+        rc = Serial.read();
+
+        if (rc != End_Marker) {
+            Received_Chars[ndx] = rc;
+            ndx++;
+            if (ndx >= Number_Chars) {
+                ndx = Number_Chars - 1;
+            }
+        }
+        else {
+            Received_Chars[ndx] = '\0'; // terminate the string
+            ndx = 0;
+            New_Data = true;
+        }
+    }
+}
+
+void ParseSerialInput(){
+  if (New_Data == true){
+    Serial.println("Input: "+String(Received_Chars));
+    New_Data = false;
+
+    //count commas in input
+    int count = 0;
+    for (uint8_t i=0; i<strlen(Received_Chars); i++){
+      if (Received_Chars[i] == ','){
+         count++;
+      }
+    }
+
+    if (count == 2){
+      char * strtok_Index;
+      char Command_3_Buffer[32] = {0};
+      
+      //Parse first section
+      strtok_Index = strtok(Received_Chars,",");
+      strcpy(Command_1, strtok_Index);
+
+      //Parse second section
+      strtok_Index = strtok(NULL,",");
+      strcpy(Command_2,strtok_Index);
+
+      //Parse third section
+      strtok_Index = strtok(NULL,",");
+      strcpy(Command_3_Buffer,strtok_Index);
+      
+      //Check to make sure third command is valid
+      if (!isnan(atof(Command_3_Buffer))){
+        
+        //convert Command_3_Buffer to float, although this seems to not work since if Command_3_Buffer is just other characters, it returns 0 :(
+        Command_3 = atof(strtok_Index);
+        String Response_String = "";
+
+
+        if(String(Command_1) == "P1"){
+          Response_String+="Peltier 1 ";
+          if(String(Command_2) == "Kp"){
+            Response_String+="Kp set to "+String(Command_3);
+            Peltier_1_Kp = Command_3;
+          }
+          if(String(Command_2) == "Ki"){
+            Response_String+="Ki set to "+String(Command_3);
+            Peltier_1_Ki = Command_3;
+          }
+          if(String(Command_2) == "Kd"){
+            Response_String+="Ki set to "+String(Command_3);
+            Peltier_1_Kd = Command_3;
+          }
+          if(String(Command_2) == "T"){
+            Response_String+="SV set to "+String(Command_3)+"C";
+            Peltier_1_Setpoint = Command_3;
+          }
+        }
+
+        if(String(Command_1) == "P2"){
+          Response_String+="Peltier 2 ";
+          if(String(Command_2) == "Kp"){
+            Response_String+="Kp set to "+String(Command_3);
+            Peltier_2_Kp = Command_3;
+          }
+          if(String(Command_2) == "Ki"){
+            Response_String+="Ki set to "+String(Command_3);
+            Peltier_2_Ki = Command_3;
+          }
+          if(String(Command_2) == "Kd"){
+            Response_String+="Ki set to "+String(Command_3);
+            Peltier_2_Kd = Command_3;
+          }
+          if(String(Command_2) == "T"){
+            Response_String+="SV set to "+String(Command_3)+"C";
+            Peltier_2_Setpoint = Command_3;
+          }
+        }
+
+        if(String(Command_1) == "P3"){
+          Response_String+="Peltier 3 ";
+          if(String(Command_2) == "Kp"){
+            Serial.println("uh oh");
+            Response_String+="Kp set to "+String(Command_3);
+            Peltier_3_Kp = Command_3;
+          }
+          if(String(Command_2) == "Ki"){
+            Response_String+="Ki set to "+String(Command_3);
+            Peltier_3_Ki = Command_3;
+          }
+          if(String(Command_2) == "Kd"){
+            Response_String+="Ki set to "+String(Command_3);
+            Peltier_3_Kd = Command_3;
+          }
+          if(String(Command_2) == "T"){
+            Response_String+="SV set to "+String(Command_3)+"C";
+            Peltier_3_Setpoint = Command_3;
+          }
+        }
+
+        if(String(Command_1) == "P4"){
+          Response_String+="Peltier 4 ";
+          if(String(Command_2) == "Kp"){
+            Response_String+="Kp set to "+String(Command_3);
+            Peltier_4_Kp = Command_3;
+          }
+          if(String(Command_2) == "Ki"){
+            Response_String+="Ki set to "+String(Command_3);
+            Peltier_4_Ki = Command_3;
+          }
+          if(String(Command_2) == "Kd"){
+            Response_String+="Ki set to "+String(Command_3);
+            Peltier_4_Kd = Command_3;
+          }
+          if(String(Command_2) == "T"){
+            Response_String+="SV set to "+String(Command_3)+"C";
+            Peltier_4_Setpoint = Command_3;
+          }
+        }
+
+        if(String(Command_1) == "V1"){
+          Vapor_1_Setpoint = Command_3;
+          Response_String+="Vapor 1 SV set to "+String(Command_3)+"C";
+        }
+        if(String(Command_1) == "V2"){
+          Vapor_2_Setpoint = Command_3;
+          Response_String+="Vapor 2 SV set to "+String(Command_3)+"C";
+        }
+        if(String(Command_1) == "V3"){
+          Vapor_3_Setpoint = Command_3;
+          Response_String+="Vapor 3 SV set to "+String(Command_3)+"C";
+        }
+        if(String(Command_1) == "V4"){
+          Vapor_4_Setpoint = Command_3;
+          Response_String+="Vapor 4 SV set to "+String(Command_3)+"C";
+        }
+
+        if(String(Command_1) == "D"){
+          Debug_Rate = Command_3;
+          Response_String+="Debug Rate set to "+String(Command_3);
+        }
+
+        Serial.println(Response_String);
+        Serial.println("");
+        Serial.println("Command_1: "+String(Command_1));
+        Serial.println("Command_2: "+String(Command_2));
+        Serial.println("Command_3: "+String(Command_3));
+        Serial.println("");
+      }
+      else{
+        Serial.println("Command_3: '"+String(Command_3_Buffer)+"' is not a float");
+      }
+      
+
+
+    }
+  
+    else if (count == 0 && String(Received_Chars) == "?"){
+      Serial.println("Command structure:");
+      Serial.println("Example - Setting Peltier 1 Ki value to 3:");
+      Serial.println("P1,Ki,3");
+      Serial.println("Example - Setting Vapor 3 setpoint value to 32.50C:");
+      Serial.println("V3,T,32.5");
+      Serial.println("Example - Setting debug rate value to 600:");
+      Serial.println("D,D,600");
+      Serial.println("Example - Disable debug output:");
+      Serial.println("D,D,-1");
+      Serial.println("");
+      
+    }
+    else{
+      Serial.println("Command: '"+String(Received_Chars)+"' is Invalid");
+    }
+    
+  }
+}
+
+
+// free RAM check for debugging. SRAM for ATmega328p = 2048Kb.
+int availableMemory() {
+    // Use 1024 with ATmega168
+    int size = 2048;
+    byte *buf;
+    while ((buf = (byte *) malloc(--size)) == NULL);
+        free(buf);
+    return size;
 }
