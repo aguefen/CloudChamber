@@ -130,11 +130,11 @@ void VaporController(int PIN_Input, int PIN_Output, int PIN_Setpoint, int PIN_Nu
 
   if (Vapor_Temperature >= PIN_Setpoint){
     digitalWrite(PIN_Output, LOW);
-    Serial.println("Vapor "+String(PIN_Number)+",   PV = "+String(Vapor_Temperature)+"C, SV = "+String(PIN_Setpoint)+"C. Output Disabled");
+    Serial.println("Vapor "+String(PIN_Number)+",   PV = "+String(Vapor_Temperature)+"C, SV = "+String(PIN_Setpoint)+"C, Output Disabled");
   }
   else{
     digitalWrite(PIN_Output, HIGH);
-    Serial.println("Vapor "+String(PIN_Number)+",   PV = "+String(Vapor_Temperature)+"C, SV = "+String(PIN_Setpoint)+"C. Output Enabled");
+    Serial.println("Vapor "+String(PIN_Number)+",   PV = "+String(Vapor_Temperature)+"C, SV = "+String(PIN_Setpoint)+"C, Output Enabled");
   }
 
 
