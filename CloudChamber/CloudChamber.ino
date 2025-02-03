@@ -2,11 +2,12 @@
  * Cloud Chamber Controller
  * Using PWM control for the peltier modules
  * Using bit-banged simple on/off control for vapor resistors
- *Using Arduino Nano
+ * Using Arduino Nano
  ************************************************************/
 
 #include <PID_v1.h>
-#include <math.h> 
+#include <OneWire.h>
+#include <DallasTemperature.h>
 
 // Peltier control pins must be PWM outputs
 #define PIN_PELTIER_1 3
@@ -20,18 +21,26 @@
 #define PIN_VAPOR_3 2
 #define PIN_VAPOR_4 4
 
-// Temperature pins must be analog inputs
-#define PIN_PELTIER_1_TEMP A0
-#define PIN_PELTIER_2_TEMP A1
-#define PIN_PELTIER_3_TEMP A2
-#define PIN_PELTIER_4_TEMP A3
+//Temperature pin must be digital
+#define PIN_ONEWIRE 20
 
-#define PIN_VAPOR_1_TEMP A4
-#define PIN_VAPOR_2_TEMP A5
-#define PIN_VAPOR_3_TEMP A6
-#define PIN_VAPOR_4_TEMP A7
+//sensor number in onewire is determined by serial numbers of sensors
+//easiest way to do this is touch sensor with hand and see which one gets warm, and route sensors according to that
+#define PELTIER_1_SENSOR 0
+#define PELTIER_2_SENSOR 1
+#define PELTIER_3_SENSOR 2
+#define PELTIER_4_SENSOR 3
 
+#define VAPOR_1_SENSOR 4
+#define VAPOR_2_SENSOR 5
+#define VAPOR_3_SENSOR 6
+#define VAPOR_4_SENSOR 7
 
+//onewire setup
+OneWire oneWire(PIN_ONEWIRE);
+DallasTemperature sensors(&oneWire);
+
+//LED control digital in/out
 #define PIN_LED_OUTPUT 7
 #define PIN_LED_INPUT 8
 
@@ -52,15 +61,16 @@ double Vapor_2_Setpoint, Vapor_2_Input, Vapor_2_Output;
 double Vapor_3_Setpoint, Vapor_3_Input, Vapor_3_Output;
 double Vapor_4_Setpoint, Vapor_4_Input, Vapor_4_Output;
 
-int LED_Input, LED_Output, LED_Input_History;
+int LED_Input, LED_Output, LED_Input_History; //maybe change this to bool to save space?
 
+//setup PID instances
 PID Peltier_1_PID(&Peltier_1_Input, &Peltier_1_Output, &Peltier_1_Setpoint, Peltier_1_Kp, Peltier_1_Ki, Peltier_1_Kd, DIRECT);
 PID Peltier_2_PID(&Peltier_2_Input, &Peltier_2_Output, &Peltier_2_Setpoint, Peltier_2_Kp, Peltier_2_Ki, Peltier_2_Kd, DIRECT);
 PID Peltier_3_PID(&Peltier_3_Input, &Peltier_3_Output, &Peltier_3_Setpoint, Peltier_3_Kp, Peltier_3_Ki, Peltier_3_Kd, DIRECT);
 PID Peltier_4_PID(&Peltier_4_Input, &Peltier_4_Output, &Peltier_4_Setpoint, Peltier_4_Kp, Peltier_4_Ki, Peltier_4_Kd, DIRECT);
 
 
-//Serial input setup
+//Serial input variables
 const byte Number_Chars = 32;
 char Received_Chars[Number_Chars];
 char Command_1[32] = {0};
@@ -68,6 +78,7 @@ char Command_2[32] = {0};
 double Command_3 = 0.0;
 boolean New_Data = false;
 
+//Debug output variables
 boolean Debug_Info = false;
 int Debug_Rate = 360;
 int Debug_Rate_Counter = 0;
@@ -78,10 +89,13 @@ void setup() {
 
   Serial.begin(9600);
 
-  Peltier_1_Input = MeasureTemperatureDS18B20(PIN_PELTIER_1_TEMP);
-  Peltier_2_Input = MeasureTemperatureDS18B20(PIN_PELTIER_2_TEMP);
-  Peltier_3_Input = MeasureTemperatureDS18B20(PIN_PELTIER_3_TEMP);
-  Peltier_4_Input = MeasureTemperatureDS18B20(PIN_PELTIER_4_TEMP);
+  sensors.begin();
+
+  //Something weird here is that you have to measure temps first to initialize PID controllers
+  Peltier_1_Input = MeasureTemperatureDS18B20(PELTIER_1_SENSOR);
+  Peltier_2_Input = MeasureTemperatureDS18B20(PELTIER_2_SENSOR);
+  Peltier_3_Input = MeasureTemperatureDS18B20(PELTIER_3_SENSOR);
+  Peltier_4_Input = MeasureTemperatureDS18B20(PELTIER_4_SENSOR);
 
   Peltier_1_Setpoint = -35.00;
   Peltier_2_Setpoint = -35.00;
@@ -101,7 +115,7 @@ void setup() {
   Peltier_3_PID.SetMode(AUTOMATIC);
   Peltier_4_PID.SetMode(AUTOMATIC);
   
-  delay(2000);
+  delay(1000);
 
 }
 
@@ -121,15 +135,17 @@ void loop() {
 
   LEDControl();
 
-  VaporController(PIN_VAPOR_1_TEMP, PIN_VAPOR_1, Vapor_1_Setpoint, 1);
-  VaporController(PIN_VAPOR_2_TEMP, PIN_VAPOR_2, Vapor_1_Setpoint, 2);
-  VaporController(PIN_VAPOR_3_TEMP, PIN_VAPOR_3, Vapor_1_Setpoint, 3);
-  VaporController(PIN_VAPOR_4_TEMP, PIN_VAPOR_4, Vapor_1_Setpoint, 4);
+  //sensors.requestTemperatures(); //<-- currently broken until we actually have sensors.
+
+  VaporController(VAPOR_1_SENSOR, PIN_VAPOR_1, Vapor_1_Setpoint, 1);
+  VaporController(VAPOR_2_SENSOR, PIN_VAPOR_2, Vapor_1_Setpoint, 2);
+  VaporController(VAPOR_3_SENSOR, PIN_VAPOR_3, Vapor_1_Setpoint, 3);
+  VaporController(VAPOR_4_SENSOR, PIN_VAPOR_4, Vapor_1_Setpoint, 4);
   
   PeltierController();
   
   if (Debug_Info == true){
-    Serial.println(String(availableMemory())+"B left in RAM");
+    Serial.println(String(availableMemory())+"B left in RAM\n");
   }
   Debug_Info = false;
   
@@ -142,22 +158,21 @@ void LEDControl(){
   //Check if the input state changed
   if (LED_Input != LED_Input_History){
     if (LED_Input == 0){
-      Serial.println("LEDs on->off");
+      Serial.println("LEDs on->off\n");
       digitalWrite(PIN_LED_OUTPUT, LOW);
     }
     else{
-      Serial.println("LEDs off->on");
+      Serial.println("LEDs off->on\n");
       digitalWrite(PIN_LED_OUTPUT, HIGH);
     }
-    Serial.println();
   }
   LED_Input_History = LED_Input;
 }
 
 //simple on/off control of vapor resistors
-void VaporController(int PIN_Input, int PIN_Output, int PIN_Setpoint, int PIN_Number){
+void VaporController(int Sensor_Number, int PIN_Output, int PIN_Setpoint, int PIN_Number){
   
-  double Vapor_Temperature = MeasureTemperatureDS18B20(PIN_Input);
+  double Vapor_Temperature = MeasureTemperatureDS18B20(Sensor_Number);
   String Vapor_Response = "";
   
   if (Vapor_Temperature >= PIN_Setpoint){
@@ -181,10 +196,11 @@ void PeltierController(){
   String Peltier_Response = "";
 
   //Measure actual temperatures
-  Peltier_1_Input = MeasureTemperatureDS18B20(PIN_PELTIER_1_TEMP);
-  Peltier_2_Input = MeasureTemperatureDS18B20(PIN_PELTIER_2_TEMP);
-  Peltier_3_Input = MeasureTemperatureDS18B20(PIN_PELTIER_3_TEMP);
-  Peltier_4_Input = MeasureTemperatureDS18B20(PIN_PELTIER_4_TEMP);
+  
+  Peltier_1_Input = MeasureTemperatureDS18B20(PELTIER_1_SENSOR);
+  Peltier_2_Input = MeasureTemperatureDS18B20(PELTIER_2_SENSOR);
+  Peltier_3_Input = MeasureTemperatureDS18B20(PELTIER_3_SENSOR);
+  Peltier_4_Input = MeasureTemperatureDS18B20(PELTIER_4_SENSOR);
   
   //Compute PWM Values
   Peltier_1_PID.Compute();
@@ -215,11 +231,10 @@ void PeltierController(){
   }
 
 //Measure Temperature from a DS18B20 temperature sensor
-double MeasureTemperatureDS18B20(int PIN_Input){
-  double Temp_Measurement = analogRead(PIN_Input);
-  
+double MeasureTemperatureDS18B20(int Sensor_Number){
+  //double Temp_Measurement = sensors.getTempCByIndex(Sensor_Number); //<- won't work until you have sensors
   //placeholder before having a real sensor
-  Temp_Measurement = random(-50, 50);
+  double Temp_Measurement = random(-50, 50);
   return Temp_Measurement;
 }
 
